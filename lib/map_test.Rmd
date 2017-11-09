@@ -1,0 +1,284 @@
+---
+title: "Untitled"
+author: "Yitong Hu  (yh2875)"
+date: "2017/3/25"
+output: html_document
+---
+
+
+
+### load packages
+```{r}
+library(dplyr)
+library(plotly)
+library(readr)
+```
+
+
+### load data
+```{r}
+data=read_tsv("../data/data_sample.txt")
+
+dest=read_tsv("../data/dest.txt")
+load("/Users/yitong/DataFest2017-gogo-data-master/doc/geo.Rdata")
+```
+
+### select the column we used in the analysis
+
+```{r}
+need.col.index<-c(4,5,6,7,10,13,14,15,16,17,18,20)  ## data
+
+data<-data[,need.col.index]
+
+```
+
+### data cleaning
+
+### delete rows contain na 
+
+```{r}
+#sum(is.na(data$user_location_region))
+# there is 1481 missing data for "data$user_location_region"
+#valid_index<-!is.na(data$user_location_region)
+#data<-data[valid_index,] # 10883058 rows
+
+
+```
+
+
+### delete false code
+```{r}
+############ $user_location_region #############
+
+# unique(data$user_location_region)
+state_code<-c("AL","AK","AZ","AR ","CA" ,"CO" ,"CT","DE" ,"FL","GA" ,"HI" ,"ID" ,"IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT","NE", "NV", "NH", "NJ","NM","NY", "NC"," ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY")
+
+false_code=setdiff(unique(data$user_location_region),state_code) #the difference between two sets
+length(false_code)
+# there are 902 false codes.
+
+data<-data %>% filter(data$user_location_region %in% as.factor(state_code))
+# 7363335 rows
+
+
+############ user_location_latitude & user_location_longitude  #############
+
+# -90 < latitude < 90
+# -180 < longitude < 180
+
+# valid.lat.index<-ifelse(data$user_location_latitude > -90 & data$user_location_latitude < 90,1,0)
+# valid.lon.index<-ifelse(data$user_location_longitude > -180 & data$user_location_longitude < 180,1,0)
+
+# all data of user_location_latitude & user_location_longitude are valid
+
+
+############ is_mobile & is_booking  #############
+
+log.index=data$is_booking %in% c(0,1)&data$is_mobile %in%c(0,1)
+data=data[log.index,]
+
+
+#non.na.index<-rowSums(is.na(data))==0
+#data<-data[non.na.index,]
+# all data of is_mobile & is_booking are valid
+# 7363335 rows
+```
+
+### combine with user dataset
+```{r}
+rm(expedia_data)
+data_combine1<-merge(data,dest,by="srch_destination_id")
+rm(data)
+rm(geo)
+rm(false_code)
+rm(need.col.index,need.col.index2)
+rm(log.index,non.na.index)
+rm(dest,state_code,state_code_raw)
+#index <- 1:nrow(data_combine1)
+#newdata <- data.frame(city=data_combine1$user_location_city, index=index)
+#mergecity <- merge(newdata, geo, by.x="city", by.y="city")
+#datacol <- ncol(newdata)
+#data_combine <- data.frame(data_combine1[mergecity$index, ], mergecity[,-(1:datacol)])
+#data_combine2<- data_combine
+#rm(data_combine)
+
+data_shiny=data_combine1[,c(2,3,7,9,10,12,13,15,16)]
+colnames(data_shiny)[8]="latitude"
+colnames(data_shiny)[9]="longitude"
+
+
+
+data_shiny$month=as.numeric(substring(data_shiny$srch_ci,6,7))
+save(data_shiny,file = "../output/data_shiny.Rdata")
+save(data_combine1,file="../output/data_combine1.Rdata")
+
+#index.no.score<-c( seq(1:16),seq(dim(data_combine2)[2]-4,dim(data_combine2)[2]) )
+#data_combine3<-data_combine2[,index.no.score]
+#save(data_combine3,file="../output/data_combine3.Rdata")
+```
+
+
+### select the data the analysis needed
+```{r}
+load("../output/data_combine1.Rdata")
+data_new<-data_combine1[,1:16]
+index<-data_new$is_booking == 1
+data_booking<-data_new[index,]
+```
+
+### map of location
+
+```{r}
+table.state.num<- table(data_booking$user_location_region)
+#convert the table to dataframe
+state.df<-data.frame(state=names(table.state.num),num<-unname(table.state.num))
+
+# specify map's notes 
+state.df$hover <- with(state.df, paste(state, '<br>', "numbers of record:", num))
+
+# give state boundaries a white border
+l <- list(color = toRGB("black"), width = 1)
+
+# specify some map projection/options
+g <- list(
+  scope = 'usa',
+  projection = list(type = 'albers usa'),
+  showlakes = FALSE,  #whether show the lake 
+  lakecolor = toRGB('blue')  #lake's color
+)
+
+#specify map's features
+p <- plot_geo(state.df, locationmode = 'USA-states') %>%
+  add_trace(
+    z = ~num, text = ~hover, locations = ~state,
+    color = ~num, colors = 'Reds',marker=list(line=l)  
+  ) %>%
+  colorbar(title = "booked") %>%
+  layout(
+    title = 'Expedia records by State<br>(Hover for breakdown)',
+    geo = g
+  )
+
+#p
+```
+
+
+### count the number of records by destination name
+```{r}
+state.df<-data.frame(long=data_booking$srch_destination_longitude,lat=data_booking$srch_destination_latitude,name=data_booking$srch_destination_name)
+#head(state.df)
+state.df1<-cbind(state.df,rep(1,nrow(state.df)))
+#head(state.df1)
+state.df1$long<-as.factor(state.df1$long)
+state.df1$lat<-as.factor(state.df1$lat)
+state.df1$name<-as.factor(state.df1$name)
+agg.list <- list(state.df1$long, state.df1$lat,state.df1$name)
+state.count<-aggregate(state.df1[,4], by = agg.list, sum)
+head(state.count)
+colnames(state.count)
+```
+
+### map of destiation
+
+```{r}
+state.count1<-data.frame(long=state.count$Group.1,lat=state.count$Group.2,number=as.numeric(state.count$x),name=state.count$Group.3)
+
+
+# give state boundaries a white border
+l <- list(color = toRGB("white"), width = 2)
+
+# specify some map projection/options
+
+g <- list(
+  scope = 'usa',
+  projection = list(type = 'albers usa'),
+  showland = TRUE,
+  landcolor = toRGB("gray85"),
+  subunitwidth = 1,
+  countrywidth = 1,
+  subunitcolor = toRGB("white"),
+  countrycolor = toRGB("white")
+)
+
+p <- plot_geo(state.count1, locationmode = 'USA-states', sizes = c(1, 250)) %>%
+  add_markers(
+    x = ~long, y = ~lat, size = ~number, colors = "Reds", hoverinfo = "text",
+    text = ~paste(state.count1$name, "<br />", state.count1$number)
+  ) %>%
+  layout(title = 'Expedia records by city<br>(Hover for breakdown)', geo = g)
+#p
+```
+
+############## word cloud ###############
+
+### set tag
+```{r}
+### season
+
+### 3-5 - spring; 6-8 - summer ; 9-11 - fall ; 12-2 - winter
+month<-as.numeric(substr(data_booking$srch_ci,6,7))
+index_spr<- 3 <= month & month <= 5
+data_booking$season<-NULL
+data_booking$season[index_spr]<-"spring"
+index_sum<- 6 <= month & month <= 8
+data_booking$season[index_sum]="summer"
+index_fal<- 9 <= month & month <= 11
+data_booking$season[index_fal]="fall"
+index_win<- 12 == month & month <= 2
+data_booking$season[index_win]="winter"
+
+
+### climatic zone
+
+### Torridzone： 0 - 23.5(absolute value) ; 
+### Temperate zones: 23.5 - 66.5;
+### Frigid zones: 66.5 - 90.
+
+lati<-abs(as.numeric(data_booking$user_location_latitude))
+index_ter<- 0 <= lati & lati <= 23.5
+
+data_booking$zone<-NULL
+
+data_booking$zone[index_ter]<-"Torridzone"
+index_tem<- 23.5 <= lati & lati <= 66.5
+data_booking$zone[index_tem]="Temperate"
+index_fri<- 66.5 <= lati & lati <= 90
+data_booking$zone[index_fri]="Frigid"
+```
+
+```{r}
+head(state.count1)
+head(data_booking)
+rm(index,index_fal,index_fri,index_spr,index_sum,index_tem,index_ter,index_win,lati,month)
+data.cloud <- merge(state.count1,data_booking, by.x="lat", by.y="srch_destination_latitude",all.x=T)
+non.na.index<-rowSums(is.na(data.cloud))==0
+data.cloud<-data.cloud[non.na.index,]
+```
+
+```{r}
+data.cloud1<-data.cloud[,c(3,4,20,21)]
+
+dat1<-data.cloud1[data.cloud1$season == "summer" & data.cloud1$zone == "Torridzone",]
+dat2<-data.cloud1[data.cloud1$season == "fall" & data.cloud1$zone == "Temperate",]
+
+dat1<-dat1[!duplicated(dat1),]
+dat2<-dat2[!duplicated(dat2),]
+
+#data.cloud2<-data.cloud1
+#data.cloud2$number<-data.cloud2$number/100
+#eBar(data.cloud1, ~season, ~number, ~zone)
+```
+
+
+### word cloud 
+```{r}
+
+library(recharts)
+eWordcloud(dat1, namevar = ~name, datavar = ~number,size = c(600, 600),title = "summer & Torridzone",rotationRange = c(-20, 20))
+eWordcloud(dat2, namevar = ~name, datavar = ~number,size = c(600, 600),title = "fall & temperate",rotationRange = c(-20, 20))
+```
+
+
+
+
+

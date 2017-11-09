@@ -1,0 +1,144 @@
+---
+title: "R Notebook"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+```{r}
+if(!require("data.table")) install.packages("data.table")
+library("data.table")
+data<-fread("data.txt",header = TRUE)
+
+# Calculate the percentage of people who book the package
+dim(data)[1]
+sum(data$is_package==1)
+pack_per<-sum(data$is_package==1)/dim(data)[1]
+pack_per
+# Calculate the percentage of people who book the hotel only
+hotel_per<-length(data$hotel_id[data$is_package==0])/dim(data)[1]
+hotel_per
+# The percentage above sums up to 1, so we do histgorm directly
+if(!require("plotly")) install.packages("plotly")
+library("plotly")
+dat<-data.frame(product=factor(c("Package","Hotel only"),levels = c("Package","Hotel only")),percentage=c(pack_per,hotel_per))
+p <- ggplot(data=dat, aes(x=product, y=percentage, fill=product),width=0.3) +
+    geom_bar(stat="identity")
+p <- ggplotly(p)
+p
+
+
+# The percentage of the two product on different booking devices
+per_pac_mobile<-nrow(data[data$is_mobile==1&data$is_package==1,])/sum(data$is_mobile==1)
+per_hot_mobile<-nrow(data[data$is_mobile==1&data$is_package==0,])/sum(data$is_mobile==1)
+per_pac_web<-nrow(data[data$is_mobile==0&data$is_package==1,])/sum(data$is_mobile==0)
+per_hot_web<-nrow(data[data$is_mobile==0&data$is_package==0,])/sum(data$is_mobile==0)
+dat1<-data.frame(product=factor(c("Package","Package","Hotel only","Hotel only")), method=factor(c("On mobile","Website","On mobile","Website"),levels = c("On mobile","Website")),percent=c(per_pac_mobile,per_pac_web,per_hot_mobile,per_hot_web))
+p <- ggplot(data=dat1, aes(x=method, y=percent, fill=product)) +
+    geom_bar(stat="identity", position=position_dodge())
+p <- ggplotly(p)
+p
+```
+
+Loyalty user filter:
+
+```{r}
+if(!require("dplyr")) install.packages("dplyr")
+library(dplyr)
+loy_userid<-unique(data$user_id[duplicated(data$user_id)])
+loy_data<-data%>%filter(data$user_id%in%loy_userid)
+loy_data_book<-loy_data[loy_data$is_booking==1,]
+
+# see the booked loyal user's last 100 most number of booking
+tail(sort(table(loy_data_book$user_id)),100)
+a<-table(table(loy_data_book$user_id))
+plot(cumsum(a))
+plot(cumsum(a),xlim = c(0,20))
+# according to the plot, we decided to choose the normal booking range should be 3~15
+```
+
+```{r}
+length(sort(table(loy_data_book$user_id))[sort(table(loy_data_book$user_id))<=15&sort(table(loy_data_book$user_id))>=3])
+loy_userid<-names(sort(table(loy_data_book$user_id))[sort(table(loy_data_book$user_id))<=15&sort(table(loy_data_book$user_id))>=3])
+loy_data<-data%>%filter(data$user_id%in%loy_userid)
+save(loy_data,file = "loy_data.Rdata")
+
+# userid for customers who booked 1~2 times
+normal_userid<-names(sort(table(loy_data_book$user_id))[sort(table(loy_data_book$user_id))<3])
+click_userid<-data$user_id[data$is_booking==0]
+
+normalUser_data<-data%>%filter(data$user_id%in%normal_userid)
+normalUser_data_book<-normalUser_data[normalUser_data$is_booking==1,]
+```
+
+Data Visulization for loyal customers
+```{r}
+hour <- as.numeric(substr(loy_data_book$date_time,start=12,stop=13))
+hour_normalUser<-as.numeric(substr(normalUser_data_book$date_time,start=12,stop=13))
+
+
+library(plotly)
+p <- plot_ly(alpha = 0.6) %>%
+  add_histogram(x = ~hour,name="Normal Customer") %>%
+  add_histogram(x = ~hour_normalUser, name="Loyalty Customer") %>%
+  layout(barmode = "overlay",xaxis=list(title="Hour",breaks=24),yaxis=list(title="Frequency of booking"))
+p
+```
+
+American loyal customers distribution
+```{r}
+state_code<-as.factor(c("AL","AK","AZ","AR ","CA" ,"CO" ,"CT","DE" ,"FL","GA" ,"HI" ,"ID" ,"IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT","NE", "NV", "NH", "NJ","NM"," NY", "NC"," ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"))
+loy_data_book_us<-loy_data_book%>%filter(loy_data_book$user_location_region%in%state_code)
+number<-table(loy_data_book_us$user_location_region)
+loy_book_us_dataframe<-data.frame(number)
+loy_book_us_dataframe$perc<-round(loy_book_us_dataframe$Freq/nrow(loy_data_book_us),2)
+colnames(loy_book_us_dataframe)[1]<-"code"
+
+loy_book_us_dataframe$hover<-with(loy_book_us_dataframe,paste("Frequency","<br>",Freq))
+l<-list(color=toRGB("white"),width=2)
+g <- list(
+  scope = 'usa',
+  projection = list(type = 'albers usa'),
+  showlakes = TRUE,
+  lakecolor = toRGB('white')
+)
+p <- plot_geo(loy_book_us_dataframe, locationmode = 'USA-states') %>%
+  add_trace(
+    z = ~perc, text = ~hover, locations = ~code,
+    color = ~perc, colors = 'Purples'
+  ) %>%
+  colorbar(title = "Percentage") %>%
+  layout(
+    title = '2015 Expidia\'s loyalty customers distribution',
+    geo = g
+  )
+p
+```
+
+
+dataset for logistic LASSO regression(US):
+```{r}
+feature<-c("user_location_region","user_id","is_mobile","is_package","srch_adults_cnt","srch_children_cnt","srch_rm_cnt","is_booking","prop_starrating")
+loy_data_book_LR<-loy_data_book_us[,feature]
+click_data_LR<-data%>%filter(data$user_id%in%click_userid)
+click_data_LR<-click_data_LR[,feature]
+
+# sample for click user and loyal customer
+set.seed(200)
+loy_dataSample_book_LR<-loy_data_book_LR[sample(1:15000),]
+loy_dataSample_book_LR<-loy_dataSample_book_LR[!duplicated(loy_dataSample_book_LR$user_id),]
+loy_dataSample_book_LR<-loy_dataSample_book_LR[sample(1:10000),]
+
+click_dataSample_LR<-click_data_LR[sample(1:25000),]
+click_dataSample_LR<-click_dataSample_LR[!duplicated(click_dataSample_LR$user_id),]
+click_dataSample_LR<-click_dataSample_LR[sample(1:10000),]
+
+dataSample_LR<-rbind(loy_dataSample_book_LR,click_dataSample_LR)
+save(dataSample_LR,file = "dataSample_LR.Rdata")
+```
+
+Logistic regression LASSO
+```{r}
+
+```
+

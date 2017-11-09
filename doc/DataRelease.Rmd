@@ -1,0 +1,111 @@
+---
+title: "ASA DataFest 2017 -- Data Release"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+---
+
+ASA DataFest is a celebration of data and statistics. For the next 48 hours you will work on a real-world data set and have some fun. DataFest is organized at multiple institutes nationwide and we are very proud to be one of the first sites to host this event. 
+
+This year, the data set was provided by expedia.com. It is a [stratified sample](https://en.wikipedia.org/wiki/Stratified_sampling) of browsing sessions of visitors to expedia.com. It represents less than 5% of the total traffic. 
+
+To make the data managable and fun for DataFest participants, the raw data have been pre-processed to reduce irregularity and include a more balanced representation of *clicking* sessions and *booking* sessions. The data set can be approximately treated as derived from a *case-control* design.
+
+Expedia had an earlier contest held on [Kaggle.com](https://www.kaggle.com/c/expedia-hotel-recommendations). The goal for that competition is different from this DataFest but much useful discussion and kernels can be found on Kaggle. It should be pointed out, however, that this Kaggle competition had an data leak issue which has been closed. 
+
+For our event, students are encouraged to explore, among many possible ideas, 
+* exploratory data analysis and visualization of customer journeys (where they were, where they would like to go, the length of their trips, the distance they would travel ...)
+* explore patterns associated with *group travels*
+* association mining for *booking* versus *click* sessions.
+
+# Rules of participation
+* Read the NDA. 
+* Do not share the raw data outside the DataFest event, which includes but not limted to posting on public repositories, sharing with others, using it for course projects, etc. 
+* Results and findings that are derived from the raw data set can be shared publicly. 
+* Ideas, codes and presentations shared during DataFest will be regarded as shared in the public domain. 
+* Paritipants are strictly discouraged from trying to reverse engineering the actual hotel information. 
+
+### Load packages
+```{r read data, message=F}
+if(!require("readr")) install.packages("readr")
+if(!require("dplyr")) install.packages("dplyr")
+if(!require("DT")) install.packages("DT")
+if(!require("lubridate")) install.packages("lubridate")
+if(!require("sp")) install.packages("sp")
+if(!require("rgdal")) install.packages("rgdal")
+library(readr)
+library(dplyr)
+library(DT)
+library(lubridate)
+library(sp)
+library(rgdal)
+```
+
+### Read in the data
+```{r, message=FALSE}
+expedia_data=read_tsv("../data/data.txt")
+names(expedia_data)
+dim(expedia_data)
+length(unique(expedia_data$user_id))
+```
+### Check out a couple of rows
+```{r examples}
+datatable(sample_n(expedia_data, 10))
+```
+
+```{r source}
+barplot(table(expedia_data$site_name))
+```
+
+Each row is per user, per active browsing session (defined by inactive breaks if no activities for 30 minutes), and per individual hotel. If a user browsed multiple hotels, it will be recorded in different rows. If a user browsed a hotel multiple times during one active session, it will be recorded as multiple clicks. *Booking* indicates whether the user has booked a hotel.
+
+### Date and Time
+```{r time}
+range(expedia_data$date_time)
+```
+
+`R` package [`lubridate`](https://cran.r-project.org/web/packages/lubridate/vignettes/lubridate.html) has many nice tools for working with date and time data. Here are just a few examples. 
+
+```{r weekdays}
+barplot(table(wday(expedia_data$date_time)))
+```
+
+```{r}
+barplot(table(hour(expedia_data$date_time)))
+```
+
+### Working with geo location data. 
+
+```{r geodata}
+subset_data=sample_n(expedia_data, 5000)
+#make a data frame
+coords <- as.data.frame(cbind(as.numeric(subset_data$user_location_longitude),
+                              as.numeric(subset_data$user_location_latitude)))
+#and into Spatial
+coords=coords[complete.cases(coords), ]
+points <- SpatialPoints(coords)
+#SpatialPolygonDataFrame - I'm using a shapefile of UK counties
+worldmap <- readOGR("../data/worldmap/", "TM_WORLD_BORDERS-0.3")
+#assume same proj as shapefile!
+proj4string(points) <- proj4string(worldmap)
+#get county polygon point is in
+result <- as.character(over(points, worldmap)$NAME)
+table(result)
+```
+
+Spatial information visualization might be very interesting for this data set. A number of packages `maps`, `sp`, `leaflet`, etc. 
+
+#### A small set of potential tools 
+
+*These are not fully tested and more tools can be found.
+
+- [Dashboards using R, Shiny and GoogleVis](http://www.r-bloggers.com/dashboards-in-r-with-shiny-and-googlevis/) This simple example shows how you can have multiple tabs in your shiny app, each corresponding to a different analysis/visulization.
+- [Hierarchical clustering with R, D3.js and Shiny](http://www.r-bloggers.com/hierarchical-clustering-with-r-feat-d3-js-and-shiny/)
+- [Combining th power of d3.js and R](http://blog.ae.be/combining-the-power-of-r-and-d3-js/) d3.js is a powerful javascript library with a rich [gallery](https://github.com/mbostock/d3/wiki/Gallery) of examples. In my research, my student followed the 3rd example in this blogpost and adapted new json data using [`RJSONIO`](https://cran.r-project.org/web/packages/RJSONIO/index.html) using the exsiting d3.js codes in that visualization. 
+- [plot.ly for shiny](https://plot.ly/r/shiny-tutorial/) plot.ly has a nice library of interactive visualization that can be incorporated with shiny.
+- [RGoogleMaps](https://cran.r-project.org/web/packages/RgoogleMaps/)
+- [Geocoding in R](http://www.rpubs.com/cengel248/177198)
+- [postGIS](http://rpubs.com/dgolicher/6373) process and visualize spatial data
+- [leaflet](https://rstudio.github.io/leaflet/shiny.html) interactive spatial visualization.
+- [Geo Visualization using ggplot and ggmap](https://journal.r-project.org/archive/2013-1/kahle-wickham.pdf)

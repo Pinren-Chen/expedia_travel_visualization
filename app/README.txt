@@ -1,0 +1,1 @@
+gomap.js specifies what would happen if you click the point in the map.

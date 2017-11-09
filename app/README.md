@@ -1,0 +1,1 @@
+The shiny app can be accessed via https://pinrenchen.shinyapps.io/expedia_map/
